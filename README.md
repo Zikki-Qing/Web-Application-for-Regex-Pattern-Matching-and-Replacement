@@ -3,7 +3,8 @@
 A full-stack web application for processing CSV and Excel files with natural language instructions for text replacement and data transformation.
 
 ## 🎥 Demo Video
-[Click here to watch the demo]([https://youtu.be/your-video-id](https://youtu.be/JQxMguLRU-A))
+[![Watch the demo](https://www.shutterstock.com/shutterstock/photos/2285674783/display_1500/stock-photo-demo-video-sign-icon-perfect-use-for-print-media-web-stock-images-commercial-use-or-any-kind-2285674783.jpg)](https://youtu.be/JQxMguLRU-A)
+
 
 
 
