@@ -5,7 +5,7 @@ from rest_framework import status
 from django.utils import timezone
 from django.http import HttpResponse, Http404
 from django.core.files.base import ContentFile
-from .models import FileProcessingRequest, ProcessingLog
+from .models import FileProcessingRequest, ProcessingLog, FileMetadata, ProcessingResult
 from .serializers import FileUploadSerializer
 from .services import FileProcessingService
 import logging
@@ -406,4 +406,359 @@ def health_check(request):
                 'error': str(e),
                 'timestamp': timezone.now()
             }
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_processing_history(request):
+    """
+    Get processing history with pagination and filtering
+    
+    Query parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of items per page (default: 20)
+    - status: Filter by status (optional)
+    
+    Returns: paginated list of processing requests
+    """
+    try:
+        # Get query parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+        status_filter = request.GET.get('status')
+        
+        # Build queryset
+        queryset = FileProcessingRequest.objects.all().order_by('-created_at')
+        
+        # Apply status filter if provided
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Calculate pagination
+        total_count = queryset.count()
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        
+        # Get paginated results
+        requests = queryset[start_index:end_index]
+        
+        # Serialize the data
+        history_data = []
+        for req in requests:
+            history_data.append({
+                'id': req.id,
+                'original_file_name': req.original_file_name,
+                'file_type': req.file_type,
+                'file_size': req.file_size,
+                'natural_language_description': req.natural_language_description,
+                'replacement_value': req.replacement_value,
+                'target_columns': req.target_columns,
+                'preserve_headers': req.preserve_headers,
+                'status': req.status,
+                'progress': req.progress,
+                'current_step': req.current_step,
+                'step_message': req.step_message,
+                'eta_seconds': req.eta_seconds,
+                'created_at': req.created_at,
+                'started_at': req.started_at,
+                'completed_at': req.completed_at,
+                'download_url': f'/api/v1/download/{req.id}/' if req.processed_file else None,
+                'preview_url': f'/api/v1/preview/{req.id}/1/',
+                'logs_url': f'/api/v1/logs/{req.id}/',
+                'stats_url': f'/api/v1/statistics/{req.id}/'
+            })
+        
+        # Calculate pagination info
+        total_pages = (total_count + page_size - 1) // page_size
+        has_next = page < total_pages
+        has_previous = page > 1
+        
+        return Response({
+            'success': True,
+            'data': {
+                'results': history_data,
+                'pagination': {
+                    'current_page': page,
+                    'page_size': page_size,
+                    'total_count': total_count,
+                    'total_pages': total_pages,
+                    'has_next': has_next,
+                    'has_previous': has_previous,
+                    'next_page': page + 1 if has_next else None,
+                    'previous_page': page - 1 if has_previous else None
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f'History retrieval error: {str(e)}')
+        return Response({
+            'success': False,
+            'error': 'Failed to retrieve processing history',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_request_detail(request, request_id):
+    """
+    Get detailed information about a specific processing request
+    
+    Returns: detailed request information
+    """
+    try:
+        req = FileProcessingRequest.objects.get(id=request_id)
+        
+        # Get related metadata if exists
+        metadata = None
+        try:
+            metadata_obj = FileMetadata.objects.get(request=req)
+            metadata = {
+                'total_rows': metadata_obj.total_rows,
+                'total_columns': metadata_obj.total_columns,
+                'headers': metadata_obj.headers,
+                'encoding': metadata_obj.encoding,
+                'sample_data': metadata_obj.sample_data,
+                'parsed_at': metadata_obj.parsed_at
+            }
+        except FileMetadata.DoesNotExist:
+            pass
+        
+        # Get processing result if exists
+        result = None
+        try:
+            result_obj = ProcessingResult.objects.get(request=req)
+            result = {
+                'status': result_obj.status,
+                'total_rows': result_obj.total_rows,
+                'processed_rows': result_obj.processed_rows,
+                'replacement_count': result_obj.replacement_count,
+                'column_replacement_stats': result_obj.column_replacement_stats,
+                'created_at': result_obj.created_at
+            }
+        except ProcessingResult.DoesNotExist:
+            pass
+        
+        # Get recent logs (last 10)
+        logs = ProcessingLog.objects.filter(request=req).order_by('-created_at')[:10]
+        log_data = []
+        for log in logs:
+            log_data.append({
+                'id': log.id,
+                'level': log.level,
+                'message': log.message,
+                'created_at': log.created_at,
+                'details': log.details
+            })
+        
+        return Response({
+            'success': True,
+            'data': {
+                'request': {
+                    'id': req.id,
+                    'original_file_name': req.original_file_name,
+                    'file_type': req.file_type,
+                    'file_size': req.file_size,
+                    'natural_language_description': req.natural_language_description,
+                    'replacement_value': req.replacement_value,
+                    'target_columns': req.target_columns,
+                    'preserve_headers': req.preserve_headers,
+                    'status': req.status,
+                    'progress': req.progress,
+                    'current_step': req.current_step,
+                    'step_message': req.step_message,
+                    'eta_seconds': req.eta_seconds,
+                    'created_at': req.created_at,
+                    'started_at': req.started_at,
+                    'completed_at': req.completed_at,
+                    'download_url': f'/api/v1/download/{req.id}/' if req.processed_file else None,
+                    'preview_url': f'/api/v1/preview/{req.id}/1/',
+                    'logs_url': f'/api/v1/logs/{req.id}/',
+                    'stats_url': f'/api/v1/statistics/{req.id}/'
+                },
+                'metadata': metadata,
+                'result': result,
+                'recent_logs': log_data
+            }
+        })
+        
+    except FileProcessingRequest.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Request not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        logger.error(f'Request detail retrieval error: {str(e)}')
+        return Response({
+            'success': False,
+            'error': 'Failed to retrieve request details',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['DELETE'])
+def delete_request(request, request_id):
+    """
+    Delete a processing request and its associated files
+    
+    Returns: deletion confirmation
+    """
+    try:
+        req = FileProcessingRequest.objects.get(id=request_id)
+        
+        # Delete associated files
+        if req.original_file:
+            req.original_file.delete(save=False)
+        if req.processed_file:
+            req.processed_file.delete(save=False)
+        
+        # Delete the request record
+        req.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Request deleted successfully'
+        })
+        
+    except FileProcessingRequest.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Request not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        logger.error(f'Request deletion error: {str(e)}')
+        return Response({
+            'success': False,
+            'error': 'Failed to delete request',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_global_statistics(request):
+    """
+    Get global processing statistics
+    
+    Returns: comprehensive system statistics including overview, file types, recent activity, and performance metrics
+    """
+    try:
+        from django.db.models import Count, Q
+        from datetime import datetime, timedelta
+        
+        # Calculate date ranges
+        now = timezone.now()
+        last_24h = now - timedelta(hours=24)
+        last_7d = now - timedelta(days=7)
+        
+        # Overview statistics
+        total_requests = FileProcessingRequest.objects.count()
+        completed_requests = FileProcessingRequest.objects.filter(status='completed').count()
+        failed_requests = FileProcessingRequest.objects.filter(status='failed').count()
+        processing_requests = FileProcessingRequest.objects.filter(status='processing').count()
+        pending_requests = FileProcessingRequest.objects.filter(status='pending').count()
+        
+        # Calculate success rate
+        processed_requests = completed_requests + failed_requests
+        success_rate = (completed_requests / processed_requests * 100) if processed_requests > 0 else 0
+        
+        overview = {
+            'total_requests': total_requests,
+            'completed_requests': completed_requests,
+            'failed_requests': failed_requests,
+            'processing_requests': processing_requests,
+            'pending_requests': pending_requests,
+            'success_rate': round(success_rate, 1)
+        }
+        
+        # File type statistics
+        file_type_stats = FileProcessingRequest.objects.values('file_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        file_types = [
+            {'file_type': stat['file_type'], 'count': stat['count']}
+            for stat in file_type_stats
+        ]
+        
+        # Recent activity (last 24 hours)
+        requests_last_24h = FileProcessingRequest.objects.filter(
+            created_at__gte=last_24h
+        ).count()
+        
+        recent_activity = {
+            'requests_last_24h': requests_last_24h,
+            'requests_last_7d': FileProcessingRequest.objects.filter(
+                created_at__gte=last_7d
+            ).count()
+        }
+        
+        # Performance metrics
+        completed_with_duration = FileProcessingRequest.objects.filter(
+            status='completed',
+            started_at__isnull=False,
+            completed_at__isnull=False
+        )
+        
+        avg_duration_seconds = None
+        if completed_with_duration.exists():
+            durations = []
+            for req in completed_with_duration:
+                if req.started_at and req.completed_at:
+                    duration = (req.completed_at - req.started_at).total_seconds()
+                    durations.append(duration)
+            
+            if durations:
+                avg_duration_seconds = sum(durations) / len(durations)
+        
+        performance = {
+            'avg_duration_seconds': round(avg_duration_seconds, 2) if avg_duration_seconds else None,
+            'total_processing_time_hours': round(
+                sum([(req.completed_at - req.started_at).total_seconds() 
+                     for req in completed_with_duration 
+                     if req.started_at and req.completed_at]) / 3600, 2
+            ) if completed_with_duration.exists() else 0
+        }
+        
+        # Status distribution for charts
+        status_distribution = {
+            'completed': completed_requests,
+            'failed': failed_requests,
+            'processing': processing_requests,
+            'pending': pending_requests
+        }
+        
+        # Recent requests (last 10)
+        recent_requests = FileProcessingRequest.objects.order_by('-created_at')[:10]
+        recent_requests_data = []
+        for req in recent_requests:
+            recent_requests_data.append({
+                'id': req.id,
+                'file_name': req.original_file_name,
+                'file_type': req.file_type,
+                'status': req.status,
+                'created_at': req.created_at,
+                'progress': req.progress
+            })
+        
+        return Response({
+            'success': True,
+            'data': {
+                'overview': overview,
+                'file_types': file_types,
+                'recent_activity': recent_activity,
+                'performance': performance,
+                'status_distribution': status_distribution,
+                'recent_requests': recent_requests_data,
+                'generated_at': now.isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f'Global statistics error: {str(e)}')
+        return Response({
+            'success': False,
+            'error': 'Failed to retrieve global statistics',
+            'details': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

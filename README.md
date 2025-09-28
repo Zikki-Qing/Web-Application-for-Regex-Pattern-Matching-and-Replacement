@@ -53,6 +53,23 @@ myproject/
     └── tsconfig.json           # TypeScript configuration
 ```
 
+## Demo Video
+
+🎥 **Watch the system in action!**
+
+[![File Processing System Demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/0.jpg)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+
+*Click the image above to watch a demonstration of the file processing system*
+
+### Video Content
+- Complete file upload workflow
+- Natural language processing examples
+- Real-time processing status updates
+- File download and results verification
+- System health monitoring
+
+*Note: Replace `YOUR_VIDEO_ID` with your actual YouTube video ID*
+
 ## Features
 
 - **File Upload**: Support for CSV and Excel files (.csv, .xlsx)
